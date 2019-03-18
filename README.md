@@ -1,2 +1,7 @@
 # sha256_bitcoin
 ECE 111: Advanced Digital Design
+
+## Description
+The Bitcoin Hasher was developed and written in SystemVerilog, a hardware description language, to describe the digital logic of the SHA256 algorithm which produces a unique hash value for each nonce and see how it is implemented in an FPGA board, particularly the Arria II GX board. This is a simpliflied version of the Bitcoin hasher which only produces hash values for the first 16 nonce values. In the Bitcoin hasher design, there are two SHA 256 blocks, one of which takes an input message and produces a unique hash values, and the other takes these hash values for word expansion. Both SHA 256 blocks are simplified so that it only works with input messages of a certain bit size and also, most importantly, improve the performance of the Bitcoin hasher. 
+
+Two different designs of the Bitcoin hasher were developed: a sequential design and a parallel design. The sequential design produces the final hash values by taking each message with a different nonce value, starting with a nonce value of 1, one-by-one until all 16 nonces are fully processed. Whereas, the parallel design produces the final hash values by processing the all 16 nonces simultaneously. The performance of the two designs were measured by looking at number of ALUTs and registers utilized to implement the design and also the frequency and the number of cycles taken to complete the algorithm. 
