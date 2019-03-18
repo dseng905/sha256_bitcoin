@@ -24,7 +24,7 @@ logic [31:0] a[NUM_NONCES],b[NUM_NONCES],c[NUM_NONCES],d[NUM_NONCES],e[NUM_NONCE
 logic [31:0] w[NUM_NONCES][16],H[NUM_NONCES][8]; //w array (Creates 16 bit multiplexor)
 logic [31:0] nonce, t, t2;
 logic [15:0] rc;
-logic [1:0] flag;
+logic [1:0] flag, initFlag;
 
 
 // Functions
@@ -61,12 +61,14 @@ begin
       IDLE: begin
         if (start) begin // READ first word
             mem_we <= 0;
+            mem_addr <= message_addr;
             //Initialize counters
-            rc <= 0; //word counter
+            rc <= 1; //word counter
             t <= 0; // counter for w for COMP
             t2 <= 0; // counter for w for read words from message
             nonce <= 0;
             flag <= 0;
+            initFlag <= 0;
             // Initialize Message Digests (H0-7) to 32-bit constants
             for (int n = 0; n < NUM_NONCES; n++) begin
               H[n][0] <= 32'h6a09e667;
@@ -82,26 +84,29 @@ begin
         end
       end
       READ0: begin
-        mem_we <= 0; // Read address
-        mem_addr <= message_addr + rc; //Read (t2)th word from message
-        rc <= rc + 1; //Updatemto read next word
-        state <= READ1;
-      end
-      READ1: begin // Buffer State to update current word for next cycle
-        state <= READ2;
-        mem_addr <= message_addr + rc; //Read (t2)th word from message
-        rc <= rc + 1;
-      end
-      READ2: begin // Add words from message 
-        //$display("rc: %d",rc);
-        for (int n=0; n<NUM_NONCES; n++) begin
-          w[n][t2] <= mem_read_data; // Add word from M to w array
+        if (initFlag == 0) begin
+          mem_addr <= message_addr + rc; //Read (t2)th word from message
+          rc <= rc + 1; //Updatemto read next word
+          initFlag <= 1;
         end
-        t2 <= t2 + 1;	// Update w array index
-        state <= READ3;
+        //mem_we <= 0; 
+        else begin
+          mem_addr <= message_addr + rc; 
+          rc <= rc + 1;
+          t2 <= t2 + 1; 
+          state <= READ1;
+          for (int n=0; n < NUM_NONCES; n++) begin
+            w[n][t2] <= mem_read_data; 
+          end
+        end
       end
-      READ3: begin
-        if (rc == 20) begin // If all words read, go to COMP
+      READ1: begin 
+        for (int n = 0; n < NUM_NONCES; n++) begin
+            w[n][t2] <= mem_read_data;
+        end
+        t2 <= t2 + 1;
+
+        if (rc == 21) begin // If all words read, go to COMP
           for (int n = 0; n < NUM_NONCES; n++) begin
             w[n][t2] <= mem_read_data;
             state <= COMP;
@@ -124,28 +129,22 @@ begin
           t <= t + 1; //Update counter for next COMP cycle
           flag <= 1;
         end
-        else if (rc == 16) begin // Begin COMP
+        else if (t2 == 15) begin // Begin COMP
           state <= COMP;
           t2 <= 0; //Reset counter for second block
           t <= t + 1;
           for (int n = 0; n < NUM_NONCES; n++) begin
-            w[n][t2] <= mem_read_data;
             wt[n] <= w[n][0]; //Get w[0] for next cycle
             {a[n], b[n], c[n], d[n], e[n], f[n], g[n], h[n]} <= {H[n][0], H[n][1], H[n][2], H[n][3], H[n][4], H[n][5], H[n][6], H[n][7]};
           end
         end
         else begin
-          for (int n = 0; n < NUM_NONCES; n++) begin
-            w[n][t2] <= mem_read_data;
-          end
           state <= READ0;
-          t2 <= t2 + 1;
+          //t2 <= t2 + 1;
+          mem_addr <= message_addr + rc;
+          rc <= rc + 1;
         end
-        
-        //Read tth word of the message
-        //NOTE: "w" takes two cycles to update
       end
-
       READ4: begin //Get new message for "Second" SHA256 Function
         //Padded Words
         for (int n = 0; n < NUM_NONCES; n++) begin
@@ -203,12 +202,13 @@ begin
             end
             flag <= 0;
           end
-          else if (rc < 20) begin // Begin Second Block for First SHA
+          else if (rc < 21) begin // Begin Second Block for First SHA
             state <= READ0;
             t <= 0;
             for (int n = 0; n < NUM_NONCES; n++) begin
               {H[n][0], H[n][1], H[n][2], H[n][3], H[n][4], H[n][5], H[n][6], H[n][7]} <= {H[n][0]+a[n], H[n][1]+b[n], H[n][2]+c[n], H[n][3]+d[n], H[n][4]+e[n], H[n][5]+f[n], H[n][6]+g[n], H[n][7]+h[n]};
             end
+            initFlag <= 0;
             //rc <= 16;
           end
           else begin
@@ -218,7 +218,6 @@ begin
             state <= WRITE;
           end
         end
-        
       end
 
       WRITE: begin

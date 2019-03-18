@@ -23,7 +23,7 @@ logic [31:0] a,b,c,d,e,f,g,h,temp,wt,nonce;
 logic [31:0] w[16], H[8]; //w array (Creates 16 bit multiplexor)
 logic [31:0] t, t2, cycles;
 logic [15:0] wc, rc;
-logic [1:0] flag;
+logic [1:0] flag, initFlag, writeFlag;
 //logic [31:0] s0, s1;
 
 // Functions
@@ -66,15 +66,17 @@ begin
       IDLE: begin
         if (start) begin // READ first word
             mem_we <= 0;
-            //mem_addr <= message_addr;
+            mem_addr <= message_addr;
             //Initialize counters
-            rc <= 0; //word counter
+            rc <= 1; //word counter
             wc <= 0;
             t <= 0; // counter for w for COMP
             t2 <= 0; // counter for w for read words from message
             //t3 <= 0; // counter for w to WRITE
             nonce <= 0;
             flag <= 0;
+            initFlag <= 0;
+            writeFlag <= 0;
             cycles = 1;
             // Initialize Message Digests (H0-7) to 32-bit constants
             H[0] <= 32'h6a09e667;
@@ -89,29 +91,27 @@ begin
         end
       end
       READ0: begin
-        mem_we <= 0; // Read address
-        mem_addr <= message_addr + rc; //Read (t2)th word from message
-        rc <= rc + 1; //Updatemto read next word
-        state <= READ1;
-        cycles <= cycles + 1;
+        if (initFlag == 0) begin
+          mem_addr <= message_addr + rc; //Read (t2)th word from message
+          rc <= rc + 1; //Updatemto read next word
+          initFlag <= 1;
+        end
+        else begin
+          mem_addr <= message_addr + rc; //Read (t2)th word from message
+          rc <= rc + 1; //Updatemto read next word
+          w[t2] <= mem_read_data; // Add word from M to w array
+          t2 <= t2 + 1;	// Update w array index
+          //cycles <= cycles + 1;
+          state <= READ1;
+        end
       end
       READ1: begin // Buffer State to update current word for next cycle
-        state <= READ2;
-        mem_addr <= message_addr + rc; //Read (t2)th word from message
-        rc <= rc + 1;
-         //Updatemto read next word
-      end
-      READ2: begin // Add words from message 
-        //$display("rc: %d",rc);
         w[t2] <= mem_read_data; // Add word from M to w array
         t2 <= t2 + 1;	// Update w array index
-        state <= READ3;
-        cycles <= cycles + 1;
-      end
-      READ3: begin
-        w[t2] <= mem_read_data; // Add word from M to w array
-        	// Update w array index
-        if (rc == 20) begin // If all words read, go to COMP
+      
+         //Updatemto read next word
+
+        if (rc == 21) begin // If all words read, go to COMP
           state <= COMP;
           // Added Padded words to w array
           w[3] <= nonce;
@@ -132,7 +132,7 @@ begin
           flag <= 1;
           //rc <= 0; // reset counter to indicate that all words are read
         end
-        else if (rc == 16) begin // Begin COMP
+        else if (t2 == 15) begin // Begin COMP
           state <= COMP;
           t2 <= 0; //Reset counter for second block
 		      wt <= w[0];
@@ -141,13 +141,11 @@ begin
         end
         else begin
           state <= READ0;
-          t2 <= t2 + 1;
+          //t2 <= t2 + 1;
+          mem_addr <= message_addr + rc; //Read (t2)th word from message
+          rc <= rc + 1;
         end
-        cycles <= cycles + 1;
-        //Read tth word of the message
-        //NOTE: "w" takes two cycles to update
       end
-
       READ4: begin //Get new message for "Second" SHA256 Function
         //{w[0],w[1],w[2],w[3],w[4],w[5],w[6],w[7]} <= {H[0], H[1], H[2], H[3], H[4], H[5], H[6], H[7]}
         
@@ -167,12 +165,12 @@ begin
         wt <= w[0];
         t <= t + 1;
         {a, b, c, d, e, f, g, h} <= {H[0], H[1], H[2], H[3], H[4], H[5], H[6], H[7]};
-        cycles <= cycles + 1;
+        //cycles <= cycles + 1;
       end  
       COMP: begin //Process the Message
-        $display("state: %d, a: %h, b: %h, c: %h, d: %h, e: %h, f: %h, g: %h, h: %h, wt: %h, k: %h",t-1,a,b,c,d,e,f,g,h,wt,k[t-1]);
-        $display("a: %h, b: %h, c: %h, d: %h, e: %h, f: %h, g: %h, h: %h",a,b,c,d,e,f,g,h);
-        $display("h0: %h, h1: %h, h2: %h, h3: %h, h4: %h, h5: %h, h6: %h, h7: %h",H[0],H[1],H[2],H[3],H[4],H[5],H[6],H[7]);
+        //$display("state: %d, a: %h, b: %h, c: %h, d: %h, e: %h, f: %h, g: %h, h: %h, wt: %h, k: %h",t-1,a,b,c,d,e,f,g,h,wt,k[t-1]);
+        //$display("a: %h, b: %h, c: %h, d: %h, e: %h, f: %h, g: %h, h: %h",a,b,c,d,e,f,g,h);
+        //$display("h0: %h, h1: %h, h2: %h, h3: %h, h4: %h, h5: %h, h6: %h, h7: %h",H[0],H[1],H[2],H[3],H[4],H[5],H[6],H[7]);
 
         if (t < 65) begin
           //state <= COMP;
@@ -207,15 +205,17 @@ begin
             H[7] <= 32'h5be0cd19;
             flag <= 0;
           end
-          else if (rc < 20) begin // Begin Second Block for First SHA
+          else if (rc < 21) begin // Begin Second Block for First SHA
             state <= READ0;
             t <= 0;
             {H[0], H[1], H[2], H[3], H[4], H[5], H[6], H[7]} <= {H[0]+a, H[1]+b, H[2]+c, H[3]+d, H[4]+e, H[5]+f, H[6]+g, H[7]+h};
+            initFlag <= 0;
             //rc <= 16;
           end
           else begin
             {H[0], H[1], H[2], H[3], H[4], H[5], H[6], H[7]} <= {H[0]+a, H[1]+b, H[2]+c, H[3]+d, H[4]+e, H[5]+f, H[6]+g, H[7]+h};
             state <= WRITE;
+            
           end
         end
         cycles <= cycles + 1;
@@ -223,28 +223,31 @@ begin
 
       WRITE: begin
         $display("H0: %h", H[0]);
-        mem_we <= 1;
-        mem_addr <= output_addr + nonce;
-        mem_write_data <= H[0];
-        nonce <= nonce + 1;
+        
 
-        if (nonce == NUM_NONCES - 1) begin
-          //mem_we <= 0;
-          state <= WRITE;
-          flag <= 1;
+        if (writeFlag == 0) begin
+          mem_we <= 1;
+          mem_addr <= output_addr + nonce;
+          mem_write_data <= H[0];
+          nonce <= nonce + 1;
+          writeFlag <= 1;
         end
-        else if (flag == 1) begin
+        else if (nonce == NUM_NONCES) begin
           done <= 1;
           state <= IDLE;
         end
         else begin
+          mem_we <= 0;
           state <= READ0;
-          rc <= 0; //word counter
+          rc <= 1; //word counter
           wc <= 0;
           t <= 0; // counter for w for COMP
           t2 <= 0; // counter for w for read words from message
           //t3 <= 0; // counter for w to WRITE
           flag <= 0;
+          initFlag <= 0;
+          writeFlag <= 0;
+          mem_addr <= message_addr;
           // Initialize Message Digests (H0-7) to 32-bit constants
           H[0] <= 32'h6a09e667;
           H[1] <= 32'hbb67ae85;
